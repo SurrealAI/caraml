@@ -1,11 +1,12 @@
+"""
+Provides abstractions over zmq sockets
+"""
 import queue
 import zmq
 from threading import Thread, Lock
 import nanolog as nl
-from symphony.utils.threads import start_thread
-from symphony.utils.serialization import (
-    get_serializer, get_deserializer, str2bytes
-)
+from caraml.utils.serializer import get_serializer, get_deserializer, str2bytes
+
 
 zmq_log = nl.Logger.create_logger(
     'zmq',
@@ -14,19 +15,14 @@ zmq_log = nl.Logger.create_logger(
     show_level=True,
 )
 
-class ZmqError(Exception):
-    def __init__(self, message):
-        self.message = message
-
-
 class ZmqTimeoutError(Exception):
     def __init__(self):
         super().__init__('Request Timed Out')
 
-
 class ZmqSocket(object):
     """
-        Wrapper around zmq socket, manages resources automatically
+        Wrapper around the data that we use to initialize zmq sockets.
+        Use establish() to actually create the socket
     """
     SOCKET_TYPES = {
         'PULL': zmq.PULL,
@@ -67,6 +63,9 @@ class ZmqSocket(object):
             context: Zmq.Context object, if None, client creates its own context
             verbose: set to True to print log messages
         """
+        # Initialize them first as they are used in __del__
+        self.established = False
+        self._owns_context = False
         if address is None:
             # https://stackoverflow.com/questions/6024003/why-doesnt-zeromq-work-on-localhost
             assert host is not None and port is not None, \
@@ -74,12 +73,15 @@ class ZmqSocket(object):
             if host == 'localhost':
                 host = '127.0.0.1'
             address = "{}:{}".format(host, port)
-        if '://' in address:
-            self.address = address
-        else:  # defaults to TCP
-            self.address = 'tcp://' + address
-        self.host, port = self.address.split('//')[1].split(':')
-        self.port = int(port)
+        try:
+            if '://' in address:
+                self.address = address
+            else:  # defaults to TCP
+                self.address = 'tcp://' + address
+            self.host, port = self.address.split('//')[1].split(':')
+            self.port = int(port)
+        except Exception as e:
+            raise ValueError('Cannot parse address {}. {}'.format(address, str(e)))
 
         if context is None:
             self._context = zmq.Context()
@@ -128,12 +130,6 @@ class ZmqSocket(object):
         else:
             return getattr(self._socket, attrname)
 
-    def __del__(self):
-        if self.established:
-            self._socket.close()
-        if self._owns_context: # only terminate context when we created it
-            self._context.term()
-
     @property
     def socket_type(self):
         reverse_map = {value: name for name, value in self.SOCKET_TYPES.items()}
@@ -152,7 +148,7 @@ class ZmqPusher:
         self.socket.establish()
 
     def push(self, data):
-        data = str2bytes(self.serializer(data))
+        data = self.serializer(data)
         self.socket.send(data)
 
 
@@ -174,6 +170,7 @@ class ZmqPuller:
 class ZmqClient:
     """
     Send request and receive reply from ZmqServer
+    Powered by a zmq REQ socket
     """
     def __init__(self, address=None, host=None, port=None,
                  timeout=-1,
@@ -217,7 +214,7 @@ class ZmqClient:
             ZmqTimeoutError if timed out
         """
 
-        msg = str2bytes(self.serializer(msg))
+        msg = self.serializer(msg)
         self.socket.send(msg)
 
         if self.timeout >= 0:
@@ -234,6 +231,10 @@ class ZmqClient:
 
 
 class ZmqServer:
+    """
+    Accepts requests from zmq client and replies back
+    Powered by a Zmq REP socket
+    """
     def __init__(self, address=None, host=None, port=None,
                  serializer=None,
                  deserializer=None,
@@ -262,6 +263,7 @@ class ZmqServer:
         self.socket.establish()
         self._thread = None
         self._next_step = 'recv'  # for error checking only
+        self._stopped = False
 
     def recv(self):
         """
@@ -281,12 +283,22 @@ class ZmqServer:
         """
         if self._next_step != 'send':
             raise ValueError('send() and recv() must be paired. You can only recv() now')
-        msg = str2bytes(self.serializer(msg))
+        msg = self.serializer(msg)
         self.socket.send(msg)
         self._next_step = 'recv'
 
+    def stop(self):
+        """
+        Stop the event loop. Only safe to call if
+        1) There is at least one new message.
+        2) It is called by handler
+        """
+        self._stopped = True
+
     def _event_loop(self, handler):
         while True:
+            if self._stopped:
+                return
             msg = self.recv()  # request msg from ZmqClient
             reply = handler(msg)
             self.send(reply)
@@ -300,14 +312,15 @@ class ZmqServer:
                 False to launch a thread in the background and immediately returns
 
         Returns:
-            if non-blocking, returns the created thread
+            if non-blocking, returns the created thread that has started
         """
         if blocking:
             self._event_loop(handler)
         else:
             if self._thread:
                 raise RuntimeError('event loop is already running')
-            self._thread = start_thread(self._event_loop)
+            self._thread = Thread(target=self._event_loop, args=[handler])
+            self._thread.start()
             return self._thread
 
 # TODO
@@ -484,7 +497,7 @@ class ZmqAsyncServer(Thread):
     Async REQ-REP server
     """
     def __init__(self, host, port, handler, num_workers=1,
-                    load_balanced=False, serializer=None, deserializer=None):
+                 load_balanced=False, serializer=None, deserializer=None):
         """
         Args:
             port:

@@ -122,3 +122,6 @@ runs/
 temp*
 debug_*
 *.swp
+
+# pytest
+.pytest_cache

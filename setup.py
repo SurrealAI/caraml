@@ -25,7 +25,8 @@ setup(
         "Programming Language :: Python :: 3"
     ],
     install_requires=[
-        "BeneDict",
+        # "BeneDict",
+        "pyarrow",
         "nanolog",
     ],
     python_requires='>=3.5',
