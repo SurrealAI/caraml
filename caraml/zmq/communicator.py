@@ -323,6 +323,39 @@ class ZmqServer:
             self._thread.start()
             return self._thread
 
+
+class ZmqPub(ZmqSocket):
+    def __init__(self, host, port, hwm=None, serializer=None):
+        super().__init__(host=host, port=port, socket_mode=zmq.PUB, bind=True)
+        if hwm is not None:
+            self._socket.set_hwm(hwm)
+        self.serializer = get_serializer(serializer)
+        self.establish()
+
+    def pub(self, topic, data):
+        topic = str2bytes(topic)
+        if self.serializer:
+            data = self.serializer(data)
+        self._socket.send_multipart([topic, data])
+
+
+class ZmqSub(ZmqSocket):
+    def __init__(self, host, port, topic, hwm=None, deserializer=None, context=None):
+        super().__init__(host=host, port=port, socket_mode=zmq.SUB, bind=False, context=context)
+        topic = str2bytes(topic)
+        self.topic = topic
+        if hwm is not None:
+            self._socket.set_hwm(hwm)
+        self._socket.setsockopt(zmq.SUBSCRIBE, topic)
+        self.deserializer = get_deserializer(deserializer)
+        self.establish()
+
+    def recv(self):
+        topic, data = self._socket.recv_multipart()
+        if self.deserializer:
+            data = self.deserializer(data)
+        return data
+
 # TODO
 # ========================================================
 # Everything after this needs refactoring
@@ -411,37 +444,6 @@ class ZmqReqClientPoolFixedRequest(ZmqReqClientPool):
 
     def get_request(self):
         return self.request
-
-
-class ZmqPub(ZmqSocket):
-    def __init__(self, host, port, hwm=1, serializer=None):
-        super().__init__(host=host, port=port, socket_mode=zmq.PUB, bind=True)
-        self._socket.set_hwm(hwm)
-        self.serializer = serializer
-        self.establish()
-
-    def pub(self, topic, data):
-        topic = str2bytes(topic)
-        if self.serializer:
-            data = self.serializer(data)
-        self._socket.send_multipart([topic, data])
-
-
-class ZmqSub(ZmqSocket):
-    def __init__(self, host, port, topic, hwm=1, serializer=None, context=None):
-        super().__init__(host=host, port=port, socket_mode=zmq.SUB, bind=False, context=context)
-        topic = str2bytes(topic)
-        self.topic = topic
-        self._socket.set_hwm(hwm)
-        self._socket.setsockopt(zmq.SUBSCRIBE, topic)
-        self.serializer = serializer
-        self.establish()
-
-    def recv(self):
-        topic, data = self._socket.recv_multipart()
-        if self.serializer:
-            data = self.serializer(data)
-        return data
 
 
 class ZmqSubClient(Thread):
