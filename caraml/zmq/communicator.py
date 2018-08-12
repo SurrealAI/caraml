@@ -109,7 +109,7 @@ class ZmqSocket(object):
             We want to allow subclasses to configure the socket before connecting
         """
         if self.established:
-            raise RuntimeError('Trying to establish a socket twice')
+            return
         self.established = True
         if self.bind:
             if self._verbose:
@@ -138,13 +138,15 @@ class ZmqSocket(object):
 
 class ZmqPusher:
     def __init__(self, address=None, host=None, port=None,
-                 serializer=None, hwm=42):
+                 serializer=None, hwm=42, callback=None):
         self.socket = ZmqSocket(
             address=address, host=host, port=port,
             socket_mode=zmq.PUSH, bind=False
         )
         self.socket.set_hwm(hwm)
         self.serializer = get_serializer(serializer)
+        if callback is not None:
+            callback(self.socket)
         self.socket.establish()
 
     def push(self, data):
@@ -154,12 +156,14 @@ class ZmqPusher:
 
 class ZmqPuller:
     def __init__(self, address=None, host=None, port=None,
-                 bind=True, deserializer=None):
+                 bind=True, deserializer=None, callback=None):
         self.socket = ZmqSocket(
             address=address, host=host, port=port,
             socket_mode=zmq.PULL, bind=bind
         )
         self.deserializer = get_deserializer(deserializer)
+        if callback is not None:
+            callback(self.socket)
         self.socket.establish()
 
     def pull(self):
@@ -175,7 +179,8 @@ class ZmqClient:
     def __init__(self, address=None, host=None, port=None,
                  timeout=-1,
                  serializer=None,
-                 deserializer=None):
+                 deserializer=None,
+                 callback=None):
         """
         Args:
             address:
@@ -187,22 +192,35 @@ class ZmqClient:
             deserializer:
         """
         self.timeout = timeout
+        self.address = address
+        self.host = host
+        self.port = port
         self.serializer = get_serializer(serializer)
         self.deserializer = get_deserializer(deserializer)
+        self.callback = callback
+        self._setup()
+
+    def _setup(self):
+        print('Setup')
         self.socket = ZmqSocket(
-            address=address, host=host, port=port,
+            address=self.address, host=self.host, port=self.port,
             socket_mode=zmq.REQ, bind=False
         )
         if self.timeout >= 0:
             self.socket.setsockopt(zmq.LINGER, 0)
+            self.poller = zmq.Poller()
+            self.poller.register(self.socket.unwrap(), zmq.POLLIN)
+        if self.callback is not None:
+            self.callback(self.socket)
         self.socket.establish()
 
     def request(self, msg):
         """
         Requests to the earlier provided host and port for data.
-
         https://github.com/zeromq/pyzmq/issues/132
-        We allow the requester to time out
+        We allow the requester to time out. When timedout, 
+        ZmqClient sets its attribute waiting_for_reply=True, 
+        It will discard the message on the next request call
 
         Args:
             msg: send msg to ZmqServer to request for reply
@@ -213,22 +231,20 @@ class ZmqClient:
         Raises:
             ZmqTimeoutError if timed out
         """
-
+        if self.socket.closed:
+            self._setup()
         msg = self.serializer(msg)
         self.socket.send(msg)
-
         if self.timeout >= 0:
-            poller = zmq.Poller()
-            poller.register(self.socket.unwrap(), zmq.POLLIN)
-            if poller.poll(self.timeout * 1000):
+            if self.poller.poll(self.timeout * 1000):
                 rep = self.socket.recv()
                 return self.deserializer(rep)
             else:
+                self.socket.close()
                 raise ZmqTimeoutError()
         else:
             rep = self.socket.recv()
             return self.deserializer(rep)
-
 
 class ZmqServer:
     """
@@ -239,7 +255,8 @@ class ZmqServer:
                  serializer=None,
                  deserializer=None,
                  load_balanced=False,
-                 context=None):
+                 context=None,
+                 callback=None):
         """
         Args:
             host:
@@ -260,6 +277,8 @@ class ZmqServer:
             bind=not load_balanced,
             context=context
         )
+        if callback is not None:
+            callback(self.socket)
         self.socket.establish()
         self._thread = None
         self._next_step = 'recv'  # for error checking only
@@ -362,188 +381,188 @@ class ZmqSub(ZmqSocket):
 # ========================================================
 
 
-class ZmqReqWorker(Thread):
-    """
-        Requests to 'inproc://worker' to get request data
-        Sends requests to 'tcp://@host:@port'
-        Gives response to @handler
-    """
-    def __init__(self, context, host, port, handler):
-        Thread.__init__(self)
-        self.context = context
+# class ZmqReqWorker(Thread):
+#     """
+#         Requests to 'inproc://worker' to get request data
+#         Sends requests to 'tcp://@host:@port'
+#         Gives response to @handler
+#     """
+#     def __init__(self, context, host, port, handler):
+#         Thread.__init__(self)
+#         self.context = context
         
-        self.sw_out = ZmqSocket(host=host, port=port,
-                                socket_mode=zmq.REQ, bind=False, context=context)
+#         self.sw_out = ZmqSocket(host=host, port=port,
+#                                 socket_mode=zmq.REQ, bind=False, context=context)
 
-        self.sw_inproc = ZmqSocket(address='inproc://worker', socket_mode=zmq.REQ,
-                                   bind=False, context=context)
-        self.handler = handler
+#         self.sw_inproc = ZmqSocket(address='inproc://worker', socket_mode=zmq.REQ,
+#                                    bind=False, context=context)
+#         self.handler = handler
 
-    def run(self):
-        self.out_socket = self.sw_out.establish()
-        self.task_socket = self.sw_inproc.establish()
-        while True:
-            self.task_socket.send(b'ready')
-            request = self.task_socket.recv()
+#     def run(self):
+#         self.out_socket = self.sw_out.establish()
+#         self.task_socket = self.sw_inproc.establish()
+#         while True:
+#             self.task_socket.send(b'ready')
+#             request = self.task_socket.recv()
             
-            self.out_socket.send(request)
-            response = self.out_socket.recv()
-            self.handler(response)
+#             self.out_socket.send(request)
+#             response = self.out_socket.recv()
+#             self.handler(response)
 
-        # Never reaches here
-        self.out_socket.close()
-        self.task_socket.close()
+#         # Never reaches here
+#         self.out_socket.close()
+#         self.task_socket.close()
 
-class ZmqReqClientPool(Thread):
-    """
-        Spawns num_workers threads and send requests to the provided endpoint
-        Responses are given to @handler
-    """
-    def __init__(self, host, port, handler, num_workers=5):
-        Thread.__init__(self)
-        self.host = host
-        self.port = port
-        self.handler = handler
-        self.num_workers = num_workers
+# class ZmqReqClientPool(Thread):
+#     """
+#         Spawns num_workers threads and send requests to the provided endpoint
+#         Responses are given to @handler
+#     """
+#     def __init__(self, host, port, handler, num_workers=5):
+#         Thread.__init__(self)
+#         self.host = host
+#         self.port = port
+#         self.handler = handler
+#         self.num_workers = num_workers
 
-    def get_request(self):
-        raise NotImplementedError
+#     def get_request(self):
+#         raise NotImplementedError
 
-    def run(self):
-        context = zmq.Context()
-        router = context.socket(zmq.ROUTER)
-        router.bind("inproc://worker")
+#     def run(self):
+#         context = zmq.Context()
+#         router = context.socket(zmq.ROUTER)
+#         router.bind("inproc://worker")
 
-        workers = []
-        for worker_id in range(self.num_workers):
-            worker = ZmqReqWorker(context,
-                                    self.host,
-                                    self.port,
-                                    self.handler)
-            worker.start()
-            workers.append(worker)
+#         workers = []
+#         for worker_id in range(self.num_workers):
+#             worker = ZmqReqWorker(context,
+#                                     self.host,
+#                                     self.port,
+#                                     self.handler)
+#             worker.start()
+#             workers.append(worker)
 
-        # Distribute all tasks 
-        while True:
-            request = self.get_request()
-            address, empty, ready = router.recv_multipart()
-            router.send_multipart([address, b'', request])
+#         # Distribute all tasks 
+#         while True:
+#             request = self.get_request()
+#             address, empty, ready = router.recv_multipart()
+#             router.send_multipart([address, b'', request])
 
-        # Never reach
-        router.close()
-        context.term()
-
-
-class ZmqReqClientPoolFixedRequest(ZmqReqClientPool):
-    """
-        Always blasts the same request
-    """
-    def __init__(self, host, port, handler, request, num_workers=5):
-        super().__init__(host, port, handler, num_workers)
-        self.request = request
-
-    def get_request(self):
-        return self.request
+#         # Never reach
+#         router.close()
+#         context.term()
 
 
-class ZmqSubClient(Thread):
-    def __init__(self, host, port, topic, handler, serializer=None, hwm=1, context=None):
-        Thread.__init__(self)
-        self.hwm = hwm
-        self.host = host
-        self.port = port
-        self.topic = topic
-        self.serializer = serializer
-        self.handler = handler
-        self.context = context
+# class ZmqReqClientPoolFixedRequest(ZmqReqClientPool):
+#     """
+#         Always blasts the same request
+#     """
+#     def __init__(self, host, port, handler, request, num_workers=5):
+#         super().__init__(host, port, handler, num_workers)
+#         self.request = request
 
-    def run(self):
-        self.sub = ZmqSub(self.host, self.port, self.topic, self.hwm, context=self.context)
-        # zmq_logger.infofmt('SubClient listening for topic {} on {}:{}', 
-                             # self.topic, self.host, self.port)
-        while True:
-            data = self.sub.recv()
-            if self.serializer:
-                data = self.serializer(data)
-            self.handler(data)
+#     def get_request(self):
+#         return self.request
 
 
-class ZmqAsyncServerWorker(Thread):
-    """
-    replay -> learner, replay handling learner's requests
-    """
-    def __init__(self, context, handler, serializer, deserializer):
-        Thread.__init__(self)
-        self.context = context
-        self._handler = handler
-        self.serializer = serializer
-        self.deserializer = deserializer
+# class ZmqSubClient(Thread):
+#     def __init__(self, host, port, topic, handler, serializer=None, hwm=1, context=None):
+#         Thread.__init__(self)
+#         self.hwm = hwm
+#         self.host = host
+#         self.port = port
+#         self.topic = topic
+#         self.serializer = serializer
+#         self.handler = handler
+#         self.context = context
 
-    def run(self):
-        socket = self.context.socket(zmq.REP)
-        socket.connect('inproc://worker')
-        while True:
-            req = socket.recv()
-            if self.serializer:
-                req = self.serializer(req)
-            res = self._handler(req)
-            if self.deserializer:
-                res = self.deserializer(res)
-            socket.send(res)
-        socket.close()
+#     def run(self):
+#         self.sub = ZmqSub(self.host, self.port, self.topic, self.hwm, context=self.context)
+#         # zmq_logger.infofmt('SubClient listening for topic {} on {}:{}', 
+#                              # self.topic, self.host, self.port)
+#         while True:
+#             data = self.sub.recv()
+#             if self.serializer:
+#                 data = self.serializer(data)
+#             self.handler(data)
 
 
-class ZmqAsyncServer(Thread):
-    """
-    replay -> learner, manages ZmqServerWorker pool
-    Async REQ-REP server
-    """
-    def __init__(self, host, port, handler, num_workers=1,
-                 load_balanced=False, serializer=None, deserializer=None):
-        """
-        Args:
-            port:
-            handler: takes the request (pyobj) and sends the response
-        """
-        Thread.__init__(self)
-        self.port = port
-        self.host = host
-        self.handler = handler
-        self.num_workers = num_workers
-        self.load_balanced = load_balanced
-        self.serializer = serializer
-        self.deserializer = deserializer
+# class ZmqAsyncServerWorker(Thread):
+#     """
+#     replay -> learner, replay handling learner's requests
+#     """
+#     def __init__(self, context, handler, serializer, deserializer):
+#         Thread.__init__(self)
+#         self.context = context
+#         self._handler = handler
+#         self.serializer = serializer
+#         self.deserializer = deserializer
 
-    def run(self):
-        context = zmq.Context()
-        router_sw = ZmqSocket(socket_mode=zmq.ROUTER,
-                              bind=(not self.load_balanced),
-                              host=self.host,
-                              port=self.port,
-                              context=context)
-        router = router_sw.establish()
+#     def run(self):
+#         socket = self.context.socket(zmq.REP)
+#         socket.connect('inproc://worker')
+#         while True:
+#             req = socket.recv()
+#             if self.serializer:
+#                 req = self.serializer(req)
+#             res = self._handler(req)
+#             if self.deserializer:
+#                 res = self.deserializer(res)
+#             socket.send(res)
+#         socket.close()
 
-        dealer_sw = ZmqSocket(socket_mode=zmq.ROUTER,
-                              bind=True,
-                              address="inproc://worker",
-                              context=context)
-        dealer = dealer_sw.establish()
 
-        workers = []
-        for worker_id in range(self.num_workers):
-            worker = ZmqAsyncServerWorker(context, self.handler, self.serializer, self.deserializer)
-            worker.start()
-            workers.append(worker)
+# class ZmqAsyncServer(Thread):
+#     """
+#     replay -> learner, manages ZmqServerWorker pool
+#     Async REQ-REP server
+#     """
+#     def __init__(self, host, port, handler, num_workers=1,
+#                  load_balanced=False, serializer=None, deserializer=None):
+#         """
+#         Args:
+#             port:
+#             handler: takes the request (pyobj) and sends the response
+#         """
+#         Thread.__init__(self)
+#         self.port = port
+#         self.host = host
+#         self.handler = handler
+#         self.num_workers = num_workers
+#         self.load_balanced = load_balanced
+#         self.serializer = serializer
+#         self.deserializer = deserializer
 
-        # http://zguide.zeromq.org/py:mtserver
-        # http://api.zeromq.org/3-2:zmq-proxy
-        # **WARNING**: zmq.proxy() must be called AFTER the threads start,
-        # otherwise the program hangs!
-        # Before calling zmq_proxy() you must set any socket options, and
-        # connect or bind both frontend and backend sockets.
-        zmq.proxy(router, dealer)
-        # should never reach
-        router.close()
-        dealer.close()
-        context.term()
+#     def run(self):
+#         context = zmq.Context()
+#         router_sw = ZmqSocket(socket_mode=zmq.ROUTER,
+#                               bind=(not self.load_balanced),
+#                               host=self.host,
+#                               port=self.port,
+#                               context=context)
+#         router = router_sw.establish()
+
+#         dealer_sw = ZmqSocket(socket_mode=zmq.ROUTER,
+#                               bind=True,
+#                               address="inproc://worker",
+#                               context=context)
+#         dealer = dealer_sw.establish()
+
+#         workers = []
+#         for worker_id in range(self.num_workers):
+#             worker = ZmqAsyncServerWorker(context, self.handler, self.serializer, self.deserializer)
+#             worker.start()
+#             workers.append(worker)
+
+#         # http://zguide.zeromq.org/py:mtserver
+#         # http://api.zeromq.org/3-2:zmq-proxy
+#         # **WARNING**: zmq.proxy() must be called AFTER the threads start,
+#         # otherwise the program hangs!
+#         # Before calling zmq_proxy() you must set any socket options, and
+#         # connect or bind both frontend and backend sockets.
+#         zmq.proxy(router, dealer)
+#         # should never reach
+#         router.close()
+#         dealer.close()
+#         context.term()
 

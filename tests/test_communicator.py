@@ -1,7 +1,7 @@
 import pytest
 import zmq
 import time
-from caraml.zmq import ZmqSocket, ZmqServer, ZmqClient, ZmqPusher, ZmqPuller, ZmqPub, ZmqSub
+from caraml.zmq import ZmqSocket, ZmqServer, ZmqClient, ZmqPusher, ZmqPuller, ZmqPub, ZmqSub, ZmqTimeoutError
 from threading import Thread, Lock
 from asyncio import Semaphore
 
@@ -44,6 +44,7 @@ def test_client_server():
     
     assert data[0] == [n for n in range(N)]
     assert data[1] == [n + 1 for n in range(N)]
+
 
 @pytest.mark.timeout(1)
 def test_client_server_eventloop():
@@ -155,3 +156,40 @@ def test_pub_sub():
         'topic-1': [i + 1 for i in range(N)],
         'topic-2': [i + 2 for i in range(N)]
     }
+
+
+@pytest.mark.timeout(2)
+def test_client_server_timeout():
+    host = '127.0.0.1'
+    port = 7000
+
+    def client():
+        client = ZmqClient(host=host, port=port, timeout=0.3, serializer='pickle', deserializer='pickle')
+        assert client.request('request-1') == 'received-request-1'
+        with pytest.raises(ZmqTimeoutError):
+            client.request('request-2')
+        assert client.request('request-3') == 'received-request-3'
+
+    def server():
+        server = ZmqServer(host=host, port=port, 
+                           serializer='pickle',
+                           deserializer='pickle')
+        while True:
+            req = server.recv()
+            if req == 'request-1':
+                server.send('received-request-1')
+            elif req == 'request-2':
+                time.sleep(0.5)
+                server.send('received-request-2')
+            elif req == 'request-3':
+                server.send('received-request-3')
+                break
+
+    server_thread = Thread(target=server)
+    client_thread = Thread(target=client)
+
+    client_thread.start()
+    server_thread.start()
+    client_thread.join()
+    server_thread.join()
+
