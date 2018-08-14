@@ -12,14 +12,17 @@ import pyarrow
 def pa_serialize(obj):
     return pyarrow.serialize(obj).to_buffer()
 
+
 def pa_deserialize(binary):
     return pyarrow.deserialize(binary)
+
 
 def bytes2str(bytestring):
     if isinstance(bytestring, str):
         return bytestring
     else:
         return bytestring.decode('UTF-8')
+
 
 def str2bytes(string):
     if isinstance(string, bytes):
@@ -31,14 +34,14 @@ def str2bytes(string):
 _SERIALIZERS = {
     'str': str2bytes,
     'pickle': pickle.dumps,
-    'json': json.dumps,
+    'json': lambda data: str2bytes(json.dumps(data)),
     'pyarrow': pa_serialize,
 }
 
 _DESERIALIZERS = {
     'str': bytes2str,
     'pickle': pickle.loads,
-    'json': json.loads,
+    'json': lambda data: json.loads(bytes2str(data)),
     'pyarrow': pa_deserialize,
 }
 
