@@ -42,8 +42,10 @@ _DESERIALIZERS = {
     'pyarrow': pa_deserialize,
 }
 
+
 def _id(x):
     return x
+
 
 def get_serializer(serializer):
     """

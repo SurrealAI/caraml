@@ -427,13 +427,11 @@ class ZmqPub:
             data: data to send to ZmqSub, serialized when applicable
         """
         topic = str2bytes(topic)
-        if self.serializer:
-            data = self.serializer(data)
+        data = self.serializer(data)
         self.socket.send_multipart([topic, data])
 
 
 class ZmqSub:
-
     def __init__(self, *,
                  address=None,
                  host=None,
