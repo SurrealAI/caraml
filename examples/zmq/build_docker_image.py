@@ -2,16 +2,23 @@ import os.path as op
 from symphony.addons import DockerBuilder
 
 # docker push destination URL
-UPSTREAM_URL_ROOT = 'us.gcr.io/surreal-dev-188523'
+UPSTREAM_URL = 'us.gcr.io/jimfan2018-208323/symphony-demo'
 
 
 settings = {
+    # CHANGE THIS PATH
     'temp_directory': '~/Temp/symphony',
     'context_directories': [
         {
-            'path': 'ADD/YOUR/LOCAL/FOLDER/PATH/TO/SYMPHONY',
+            # CHANGE THIS PATH
+            'path': '~/Dropbox/Portfolio/symphony',
             'name': 'symphony',
-            # Note, you need to put in your symphony directory to allow the builder to copy symphony from the correct directory
+            'force_update': True,
+        },
+        {
+            # CHANGE THIS PATH
+            'path': '~/Dropbox/Portfolio/caraml',
+            'name': 'caraml',
             'force_update': True,
         },
     ],
@@ -21,6 +28,5 @@ settings = {
 
 builder = DockerBuilder.from_dict(settings)
 builder.build()
-upstream_url = op.join(UPSTREAM_URL_ROOT, 'symphony-demo')
-builder.tag(upstream_url, 'latest')
-builder.push(upstream_url, 'latest')
+builder.tag(UPSTREAM_URL, 'latest')
+builder.push(UPSTREAM_URL, 'latest')

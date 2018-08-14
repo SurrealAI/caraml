@@ -1,11 +1,11 @@
 from caraml.zmq import *
 import os
 import time
-import json
 
 
 client = ZmqClient(
-    host=os.environ['SYMPH_EXAMPLE_HOST'], port=os.environ['SYMPH_EXAMPLE_PORT'],
+    host=os.environ['SYMPH_EXAMPLE_HOST'],
+    port=os.environ['SYMPH_EXAMPLE_PORT'],
     serializer='json',
     deserializer='json'
 )

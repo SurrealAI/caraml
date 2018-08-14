@@ -10,11 +10,12 @@ def handler(msg):
     return msg
 
 port = os.environ['SYMPH_EXAMPLE_PORT']
-listen_add = 'tcp://*:{}'.format(port)
+listen_addr = 'tcp://*:{}'.format(port)
+
 server = ZmqServer(
-    listen_add,
-    serializer=json.dumps,
-    deserializer=json.loads
+    address=listen_addr,
+    serializer='json',
+    deserializer='json'
 )
 print('Server initialized')
 s = server.socket

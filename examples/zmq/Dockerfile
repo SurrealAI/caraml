@@ -2,8 +2,10 @@ FROM python:3.6
 RUN pip install pyzmq pyarrow
 
 # change this line to force update image
-RUN echo cache bust 125
+RUN echo cache bust 124
 COPY symphony /symphony
-RUN pip install -e /symphony/ && \
-	cp /symphony/examples/zmq/run_simple_client.py /run_simple_client.py && \
-	cp /symphony/examples/zmq/run_simple_server.py /run_simple_server.py 
+COPY caraml /caraml
+RUN pip install -e /symphony/
+RUN pip install -e /caraml/
+COPY /caraml/examples/zmq/run_simple_client.py /run_simple_client.py
+COPY /caraml/examples/zmq/run_simple_server.py /run_simple_server.py
