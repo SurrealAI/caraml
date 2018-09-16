@@ -1,15 +1,26 @@
-import pytest
-import zmq
 import time
-from caraml.zmq import ZmqSocket, ZmqServer, ZmqClient, ZmqPusher, ZmqPuller, ZmqPub, ZmqSub, ZmqTimeoutError
 from threading import Thread, Lock
-from asyncio import Semaphore
+import pytest
+from caraml.zmq import (
+    ZmqSocket,
+    ZmqServer,
+    ZmqClient,
+    ZmqPusher,
+    ZmqPuller,
+    ZmqPub,
+    ZmqSub,
+    ZmqSender,
+    ZmqReceiver,
+    ZmqTimeoutError
+    )
+
 
 def test_malformed_address():
     with pytest.raises(TypeError, match='bind'):
         c = ZmqSocket(host='tcp//tcp://123.123.123.123', port=1234, socket_mode='PUSH')
     with pytest.raises(ValueError, match='Cannot parse address'):
         c = ZmqSocket(host='tcp//tcp://123.123.123.123', port=1234, socket_mode='PUSH', bind=True)
+
 
 @pytest.mark.timeout(1)
 def test_client_server():
@@ -19,14 +30,20 @@ def test_client_server():
     data = [None, None]
 
     def client(N):
-        client = ZmqClient(host=host, port=port, serializer='pickle', deserializer='pickle')
+        client = ZmqClient(host=host,
+                           port=port,
+                           serializer='pickle',
+                           deserializer='pickle')
         all_responses = []
         for i in range(N):
             all_responses.append(client.request(i))
         data[1] = all_responses
 
     def server(N):
-        server = ZmqServer(host=host, port=port, serializer='pickle', deserializer='pickle')
+        server = ZmqServer(host=host,
+                           port=port,
+                           serializer='pickle',
+                           deserializer='pickle')
         all_requests = []
         for i in range(N):
             n = server.recv()
@@ -41,7 +58,7 @@ def test_client_server():
     server_thread.start()
     client_thread.join()
     server_thread.join()
-    
+
     assert data[0] == [n for n in range(N)]
     assert data[1] == [n + 1 for n in range(N)]
 
@@ -49,11 +66,14 @@ def test_client_server():
 @pytest.mark.timeout(1)
 def test_client_server_eventloop():
     host = '127.0.0.1'
-    port = 7000
+    port = 7001
     N = 20
     data = [None, None]
 
-    server = ZmqServer(host=host, port=port, serializer='pickle', deserializer='pickle')
+    server = ZmqServer(host=host,
+                       port=port,
+                       serializer='pickle',
+                       deserializer='pickle')
     all_requests = []
 
     def handler(x):
@@ -64,21 +84,25 @@ def test_client_server_eventloop():
 
     server_thread = server.start_event_loop(handler, blocking=False)
 
-    client = ZmqClient(host=host, port=port, serializer='pickle', deserializer='pickle')
+    client = ZmqClient(host=host,
+                       port=port,
+                       serializer='pickle',
+                       deserializer='pickle')
     all_responses = []
     for i in range(N):
         all_responses.append(client.request(i))
     data[1] = all_responses
 
     server_thread.join()
-    
+
     assert all_requests == [n for n in range(N)]
     assert all_responses == [n + 1 for n in range(N)]
+
 
 @pytest.mark.timeout(1)
 def test_pull_push():
     host = '127.0.0.1'
-    port = 7000
+    port = 7002
     N = 20
     all_requests = []
 
@@ -100,13 +124,14 @@ def test_pull_push():
     pusher_thread.start()
     puller_thread.join()
     pusher_thread.join()
-    
+
     assert all_requests == [n for n in range(N)]
+
 
 @pytest.mark.timeout(1)
 def test_pub_sub():
     host = '127.0.0.1'
-    port = 7000
+    port = 7003
     N = 10
     responses = {}
     lock = Lock()
@@ -131,7 +156,11 @@ def test_pub_sub():
     def sub(N, topic):
         with lock:
             responses[topic] = []
-        socket = ZmqSub(host=host, port=port, topic=topic, hwm=1000, deserializer='pickle')
+        socket = ZmqSub(host=host,
+                        port=port,
+                        topic=topic,
+                        hwm=1000,
+                        deserializer='pickle')
         i = 0
         while i < N:
             data = socket.recv()
@@ -161,17 +190,21 @@ def test_pub_sub():
 @pytest.mark.timeout(2)
 def test_client_server_timeout():
     host = '127.0.0.1'
-    port = 7000
+    port = 7004
 
     def client():
-        client = ZmqClient(host=host, port=port, timeout=0.3, serializer='pickle', deserializer='pickle')
+        client = ZmqClient(host=host,
+                           port=port,
+                           timeout=0.3,
+                           serializer='pickle',
+                           deserializer='pickle')
         assert client.request('request-1') == 'received-request-1'
         with pytest.raises(ZmqTimeoutError):
             client.request('request-2')
         assert client.request('request-3') == 'received-request-3'
 
     def server():
-        server = ZmqServer(host=host, port=port, 
+        server = ZmqServer(host=host, port=port,
                            serializer='pickle',
                            deserializer='pickle')
         while True:
@@ -193,3 +226,31 @@ def test_client_server_timeout():
     client_thread.join()
     server_thread.join()
 
+
+@pytest.mark.timeout(1)
+def test_send_receive():
+    host = '127.0.0.1'
+    port = 7005
+    N = 20
+    all_requests = []
+
+    def send(N):
+        pusher = ZmqSender(host=host, port=port, serializer='pickle')
+        for i in range(N):
+            pusher.send(i)
+
+    def receive(N):
+        puller = ZmqReceiver(host=host, port=port, deserializer='pickle')
+        for i in range(N):
+            n = puller.recv()
+            all_requests.append(n)
+
+    sender_thread = Thread(target=send, args=[N])
+    receiver_thread = Thread(target=receive, args=[N])
+
+    sender_thread.start()
+    receiver_thread.start()
+    sender_thread.join()
+    receiver_thread.join()
+
+    assert all_requests == [n for n in range(N)]
