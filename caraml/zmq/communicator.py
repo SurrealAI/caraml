@@ -7,8 +7,8 @@ import nanolog as nl
 from caraml.utils.serializer import get_serializer, get_deserializer, str2bytes
 
 
-zmq_log = nl.Logger.create_logger(
-    'zmq',
+logger = nl.Logger.create_logger(
+    __name__,
     stream='stdout',
     time_format='MD HMS',
     show_level=True,
@@ -102,8 +102,9 @@ class ZmqSocket(object):
     def _set_address(self, host, port, address):
         if address is None:
             # https://stackoverflow.com/questions/6024003/why-doesnt-zeromq-work-on-localhost
-            assert host is not None and port is not None, \
-                "either specify address or (host and port), but not both"
+            if not ((host is not None) and (port is not None)):
+                raise ValueError("either specify address or "
+                                 "(host and port), but not both")
             if host == 'localhost':
                 host = '127.0.0.1'
             address = "{}:{}".format(host, port)
@@ -134,13 +135,13 @@ class ZmqSocket(object):
         self.established = True
         if self.bind:
             if self._verbose:
-                zmq_log.infofmt('[{}] binding to {}',
-                                self.socket_type, self.address)
+                logger.infofmt('[{}] binding to {}',
+                               self.socket_type, self.address)
             self._socket.bind(self.address)
         else:
             if self._verbose:
-                zmq_log.infofmt('[{}] connecting to {}',
-                                self.socket_type, self.address)
+                logger.infofmt('[{}] connecting to {}',
+                               self.socket_type, self.address)
             self._socket.connect(self.address)
         return self
 

@@ -5,8 +5,6 @@ from caraml.zmq import DataFetcher
 from caraml.zmq.communicator import ZmqClient, ZmqServer
 
 
-from caraml.utils.serializer import pa_deserialize
-
 @pytest.mark.timeout(1.5)
 def test_client_server_timeout():
     host = '127.0.0.1'

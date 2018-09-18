@@ -1,18 +1,21 @@
 """
-This file implements the necessary classes 
+    This file implements the necessary classes for data fetcher class
 """
+# TODO: Documentation
 from threading import Thread
-from caraml.zmq.communicator import ZmqClient, ZmqServer
 from multiprocessing import Process
-from caraml.utils.serializer import get_serializer, get_deserializer, str2bytes
+from caraml.zmq.communicator import ZmqClient, ZmqServer
+from caraml.utils.serializer import get_serializer, get_deserializer
 from caraml.inmemory import inmem_serialize, inmem_deserialize
 
 _CARAML_TERMINATE_FETCHER = '_CARAML_TERMINATE_FETCHER'
+
 
 def _get_new_task_message():
     return {
         'type': 'new-task',
     }
+
 
 def _get_response_message(request, data):
     return {
@@ -20,6 +23,7 @@ def _get_response_message(request, data):
         'request': request,
         'data': data,
     }
+
 
 class DataFetcherWorker(Process):
     def __init__(self, master_port, remote_host=None, remote_port=None,
