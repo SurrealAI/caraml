@@ -15,6 +15,7 @@ TEMP_FOLDER = '/tmp/caraml'
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 memory_usage = {}
 
+
 class SharedMemoryObject(object):
     """
     Encapusulates a pyarrow memory backed file
@@ -55,6 +56,7 @@ class SharedMemoryObject(object):
     def __del__(self):
         self.delete()
 
+
 def inmem_dump(data, name=None):
     """
         Dump data to a memory mapped file, return filename
@@ -67,6 +69,7 @@ def inmem_dump(data, name=None):
     with pa.MemoryMappedFile.create(name, len(data)) as f:
         f.write(data)
     return name.encode()
+
 
 def inmem_serialize(data, name=None):
     """
@@ -84,6 +87,7 @@ def inmem_serialize(data, name=None):
     with pa.MemoryMappedFile.create(name, buf.size) as f:
         f.write(buf)
     return name.encode()
+
 
 def inmem_deserialize(name_bin):
     """

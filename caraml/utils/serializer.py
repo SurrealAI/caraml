@@ -91,9 +91,11 @@ def get_deserializer(deserializer):
         raise ValueError('deserializer must be either a callable or one of {}'
                          .format(list(_DESERIALIZERS.keys())))
 
+
 def string_hash(s):
     assert isinstance(s, str)
     return binary_hash(s.encode('utf-8'))
+
 
 def binary_hash(binary):
     """
@@ -107,6 +109,7 @@ def binary_hash(binary):
     s = s.decode('utf-8')
     # return s.replace('/','_')
     return s
+
 
 def pyobj_hash(obj, serializer):
     serializer = get_serializer(serializer)

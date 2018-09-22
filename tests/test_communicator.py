@@ -82,7 +82,7 @@ def test_client_server_eventloop():
         all_requests.append(x)
         return x + 1
 
-    server_thread = server.start_event_loop(handler, blocking=False)
+    server_thread = server.start_loop(handler, blocking=False)
 
     client = ZmqClient(host=host,
                        port=port,

@@ -1,7 +1,8 @@
 """
     This file implements the necessary classes for data fetcher class
+    DataFetcher forks several processes that request data and transfer them
+    through memory mapped files
 """
-# TODO: Documentation
 from threading import Thread
 from multiprocessing import Process
 from caraml.zmq.communicator import ZmqClient, ZmqServer
@@ -61,7 +62,7 @@ class DataFetcherWorker(Process):
 
 
 class DataFetcher(Thread):
-    def __init__(self, handler, 
+    def __init__(self, handler,
                  remote_host,
                  remote_port,
                  requests,
@@ -70,12 +71,27 @@ class DataFetcher(Thread):
                  remote_deserialzer='pyarrow',
                  n_workers=2,
                  worker_handler=None,
-                 ): 
+                 ):
         """
-        TODO: automatically find a port
+            TODO: automatically find a port
+            TODO: drain and exit
+
+            Forks @n_worker processes, send @requests to
+            remote_host:remote_port and process responses
+            with handler
 
         Args:
-            handler: function(request, reponse)
+            handler: function(request, reponse) what to do with response in the
+                main process
+            remote_host, remote_port: host/port for workers to connect to
+            requests: A generator of requests to send to remote
+            worker_comm_port: local port for communication with workers
+            remote_serializer: how to serialize requests to remote
+            remote_deserializer: how to deserialize response from remote
+            n_workers: number of processes to fetch data
+            worker_handler: how to process data on worker processes
+                (i.e. compute intensive tasks that still return
+                pyarrow serializable data)
         """
         Thread.__init__(self)
         self.handler = handler
@@ -91,7 +107,8 @@ class DataFetcher(Thread):
         self.worker_handler = worker_handler
 
     def run(self):
-        # Use receiver here to rate-limit the workers, using pull-push involves a large cache
+        # Use receiver here to rate-limit the workers, using pull-push causes
+        # a lot of messages to be held in system socket cache
         # https://stackoverflow.com/questions/22613737/how-could-i-set-hwm-in-the-push-pull-pattern-of-zmq
         self.server = ZmqServer(host='127.0.0.1',
                                 port=self.worker_comm_port,

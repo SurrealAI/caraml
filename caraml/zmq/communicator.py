@@ -443,7 +443,7 @@ class ZmqServer:
         """
         self._stopped = True
 
-    def _event_loop(self, handler):
+    def _loop(self, handler):
         while True:
             if self._stopped:
                 return
@@ -451,7 +451,7 @@ class ZmqServer:
             reply = handler(msg)
             self.send(reply)
 
-    def start_event_loop(self, handler, blocking=False):
+    def start_loop(self, handler, blocking=False):
         """
         Args:
             handler: function that takes an incoming client message
@@ -465,11 +465,11 @@ class ZmqServer:
             if non-blocking, returns the created thread that has started
         """
         if blocking:
-            self._event_loop(handler)
+            self._loop(handler)
         else:
             if self._thread:
-                raise RuntimeError('event loop is already running')
-            self._thread = Thread(target=self._event_loop, args=[handler])
+                raise RuntimeError('loop is already running')
+            self._thread = Thread(target=self._loop, args=[handler])
             self._thread.start()
             return self._thread
 
@@ -572,6 +572,13 @@ class ZmqReceiver(ZmqServer):
         self.send(b'ack')
         return data
 
+    def _loop(self, handler):
+        while True:
+            if self._stopped:
+                return
+            msg = self.recv()  # request msg from ZmqClient
+            handler(msg)
+
 
 class ZmqPub:
     """
@@ -672,6 +679,8 @@ class ZmqSub:
         if callback is not None:
             callback(self.socket)
         self.socket.establish()
+        self._thread = None
+        self._stopped = False
 
     def subscribe(self, topic):
         """Add a topic to subscription
@@ -703,7 +712,34 @@ class ZmqSub:
             data: whatever ZmqPub sends,
                   deserialized when applicable
         """
-        topic, data = self.socket.recv_multipart()
-        if self.deserializer:
-            data = self.deserializer(data)
+        _, data = self.socket.recv_multipart()
+        data = self.deserializer(data)
         return data
+
+    def _loop(self, handler):
+        while True:
+            if self._stopped:
+                return
+            msg = self.recv()  # request msg from ZmqClient
+            handler(msg)
+
+    def start_loop(self, handler, blocking=False):
+        """
+        Args:
+            handler: function that takes an incoming client message
+                (deserialized)
+            blocking: True to block the main program
+                False to launch a thread in the background
+                and immediately returns
+
+        Returns:
+            if non-blocking, returns the created thread that has started
+        """
+        if blocking:
+            self._loop(handler)
+        else:
+            if self._thread:
+                raise RuntimeError('loop is already running')
+            self._thread = Thread(target=self._loop, args=[handler])
+            self._thread.start()
+            return self._thread
