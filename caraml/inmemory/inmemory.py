@@ -24,8 +24,8 @@ class SharedMemoryObject(object):
         """
             Initializer
         Args:
-            @filename: location to store the temporary file
-            @debug: print additional debug information
+            filename: location to store the temporary file
+            debug: print additional debug information
         """
         self.debug = debug
         if self.debug:
@@ -61,8 +61,8 @@ def inmem_dump(data, name=None):
     """
         Dump data to a memory mapped file, return filename
     Args:
-        @data: bytes data
-        @name (Optional):
+        data: bytes data
+        name (Optional):
     """
     if name is None:
         name = os.path.join(TEMP_FOLDER, str(uuid.uuid4()))
@@ -76,10 +76,10 @@ def inmem_serialize(data, name=None):
         Serialize data into pyarrow format,
         Save to a memory mapped file, return filename
     Args:
-        @data: python object to be serialized. 
+        data: python object to be serialized. 
                At least supports native types, dict, list and numpy.array
                If data is pyarrow.lib.Buffer, saves directly
-        @name (Optional):
+        name (Optional):
     """
     if name is None:
         name = os.path.join(TEMP_FOLDER, str(uuid.uuid4()))

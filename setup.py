@@ -25,9 +25,9 @@ setup(
         "Programming Language :: Python :: 3"
     ],
     install_requires=[
-        # "BeneDict",
         "pyarrow",
         "nanolog",
+        "zmq",
     ],
     python_requires='>=3.5',
     include_package_data=True,
