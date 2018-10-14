@@ -125,3 +125,5 @@ debug_*
 
 # pytest
 .pytest_cache
+
+*.rst

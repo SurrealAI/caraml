@@ -1,3 +1,4 @@
+import os
 from setuptools import setup, find_packages
 
 
@@ -7,7 +8,7 @@ def read(fname):
 
 setup(
     name='caraml',
-    version='0.9',
+    version='0.9.post1',
     author='Surreal AI team',
     url='https://github.com/SurrealAI/caraml',
     description='Carefree Accelerated Messaging Library: protocol layer '
