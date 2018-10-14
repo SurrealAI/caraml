@@ -1,21 +1,25 @@
 from setuptools import setup, find_packages
 
 
+def read(fname):
+    with open(os.path.join(os.path.dirname(__file__), fname)) as f:
+        return f.read().strip()
+
 setup(
     name='caraml',
-    version='0.0.1',
+    version='0.9',
     author='Surreal AI team',
     url='https://github.com/SurrealAI/caraml',
     description='Carefree Accelerated Messaging Library: protocol layer '
                 'for distributed machine learning',
+    long_description=read('README.rst'),
     keywords=['Distributed', 'Messaging', 'Machine Learning'],
     license='GPLv3',
     packages=[
         package for package in find_packages() if package.startswith("caraml")
     ],
     classifiers=[
-        "Development Status :: 3 - Alpha",
-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Development Status :: 5 - Production/Stable",
         "Environment :: Console",
         "Programming Language :: Python :: 3"
     ],
