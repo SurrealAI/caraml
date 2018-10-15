@@ -13,7 +13,7 @@ setup(
     url='https://github.com/SurrealAI/caraml',
     description='Carefree Accelerated Messaging Library: protocol layer '
                 'for distributed machine learning',
-    # long_description=read('README.rst'),
+    long_description=read('README.rst'),
     keywords=['Distributed', 'Messaging', 'Machine Learning'],
     license='GPLv3',
     packages=[
