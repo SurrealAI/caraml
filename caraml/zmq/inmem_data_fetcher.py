@@ -27,8 +27,10 @@ def _get_response_message(request, data):
 
 
 class DataFetcherWorker(Process):
-    def __init__(self, master_port, remote_host=None, remote_port=None,
-                 handler=None, serializer=None, deserializer=None):
+    def __init__(self, master_port, num_threads=1,
+                 remote_host=None, remote_port=None,
+                 handler=None, serializer=None, deserializer=None,
+                 ):
         """
         Override this to setup states in the main process
         """
@@ -39,26 +41,39 @@ class DataFetcherWorker(Process):
         self.handler = handler
         self.serializer = get_serializer(serializer)
         self.deserializer = get_deserializer(deserializer)
+        self.num_threads = num_threads
 
     def run(self):
+        threads = []
+        for i in range(self.num_threads):
+            thread = Thread(target=self.run_thread)
+            thread.start()
+            threads.append(thread)
+
+        for thread in threads:
+            thread.join()
+
+    def run_thread(self):
+        print('Thread')
         # You must initilize the transmission channel AFTER you fork off
-        self.remote = ZmqClient(host=self.remote_host, port=self.remote_port, 
-                                serializer=self.serializer,
-                                deserializer=self.deserializer)
-        self.master = ZmqClient(host='127.0.0.1',
-                                port=self.master_port,
-                                serializer='pickle',
-                                deserializer='pickle')
+        remote = ZmqClient(host=self.remote_host, port=self.remote_port,
+                           serializer=self.serializer,
+                           deserializer=self.deserializer)
+        master = ZmqClient(host='127.0.0.1',
+                           port=self.master_port,
+                           serializer='pickle',
+                           deserializer='pickle')
         while True:
-            task = self.master.request(_get_new_task_message())
+            task = master.request(_get_new_task_message())
             if task == _CARAML_TERMINATE_FETCHER:
                 return
             else:
-                response = self.remote.request(task)
+                response = remote.request(task)
                 if self.handler is not None:
                     response = self.handler(response)
                 name = inmem_serialize(response)
-                self.master.request(_get_response_message(task, name))
+                master.request(_get_response_message(task, name))
+        print('Thread Exit')
 
 
 class DataFetcher(Thread):
@@ -70,6 +85,7 @@ class DataFetcher(Thread):
                  remote_serializer='pyarrow',
                  remote_deserialzer='pyarrow',
                  n_workers=2,
+                 threads_per_worker=2,
                  worker_handler=None,
                  ):
         """
@@ -104,6 +120,7 @@ class DataFetcher(Thread):
 
         self.worker_comm_port = worker_comm_port
         self.n_workers = n_workers
+        self.threads_per_worker = threads_per_worker
         self.worker_handler = worker_handler
 
     def run(self):
@@ -119,6 +136,7 @@ class DataFetcher(Thread):
         self.active_workers = 0
         for i in range(self.n_workers):
             worker = DataFetcherWorker(master_port=self.worker_comm_port,
+                                       num_threads=self.threads_per_worker,
                                        remote_host=self.remote_host,
                                        remote_port=self.remote_port,
                                        handler=self.worker_handler,
@@ -126,11 +144,12 @@ class DataFetcher(Thread):
                                        deserializer=self.remote_deserialzer,
                                        )
             worker.start()
-            self.active_workers += 1
+            self.active_workers += self.threads_per_worker
             self.workers.append(worker)
 
         while True:
             message = self.server.recv()
+            print(self.active_workers)
             if message['type'] == 'new-task':
                 try:
                     self.server.send(self.requests_iter.__next__())
