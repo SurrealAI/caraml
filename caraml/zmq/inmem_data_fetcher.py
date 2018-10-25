@@ -54,7 +54,6 @@ class DataFetcherWorker(Process):
             thread.join()
 
     def run_thread(self):
-        print('Thread')
         # You must initilize the transmission channel AFTER you fork off
         remote = ZmqClient(host=self.remote_host, port=self.remote_port,
                            serializer=self.serializer,
@@ -73,7 +72,6 @@ class DataFetcherWorker(Process):
                     response = self.handler(response)
                 name = inmem_serialize(response)
                 master.request(_get_response_message(task, name))
-        print('Thread Exit')
 
 
 class DataFetcher(Thread):
@@ -149,7 +147,6 @@ class DataFetcher(Thread):
 
         while True:
             message = self.server.recv()
-            print(self.active_workers)
             if message['type'] == 'new-task':
                 try:
                     self.server.send(self.requests_iter.__next__())
